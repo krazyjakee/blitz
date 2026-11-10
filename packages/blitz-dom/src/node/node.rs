@@ -769,9 +769,10 @@ impl Node {
         // If focussing a text input, enable IME for its purpose, with its
         // content box as the caret area until the next resolve places it
         // at the caret (`BaseDocument::update_ime_cursor_area`).
+        // (Not for a read-only field: it takes no typing.)
         if let Some(element) = self
             .element_data()
-            .filter(|elem| elem.text_input_data().is_some())
+            .filter(|elem| elem.text_input_data().is_some() && !elem.text_field_flags().read_only)
         {
             use blitz_traits::shell::TextInputPurpose;
             let purpose = match element.attr(local_name!("type")) {

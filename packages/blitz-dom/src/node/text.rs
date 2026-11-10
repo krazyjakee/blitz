@@ -72,6 +72,15 @@ pub enum GeneratedTextInputEvent {
     CompositionEnd(String),
 }
 
+/// What a text field allows, from its element's attributes when an event
+/// arrives: a read-only field can be selected and copied but not edited,
+/// and a password can't be copied out.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TextFieldFlags {
+    pub read_only: bool,
+    pub password: bool,
+}
+
 pub struct TextInputData {
     /// A parley TextEditor instance
     pub editor: Box<parley::PlainEditor<TextBrush>>,
@@ -221,6 +230,7 @@ impl TextInputData {
         layout_ctx: &mut LayoutContext<TextBrush>,
         shell_provider: &dyn ShellProvider,
         event: BlitzKeyEvent,
+        flags: TextFieldFlags,
     ) -> Option<GeneratedTextInputEvent> {
         // Do nothing if it is a keyup event
         if !event.state.is_pressed() {
@@ -237,30 +247,47 @@ impl TextInputData {
         let action_mod = mods.contains(ACTION_MOD);
 
         let is_multiline = self.is_multiline;
+        // Shortcuts match whatever Shift or Caps Lock did to the letter.
+        let shortcut = match &event.key {
+            Key::Character(c) if action_mod => Some(c.to_lowercase()),
+            _ => None,
+        };
+        if flags.read_only {
+            let edits = match &event.key {
+                Key::Character(_) => !action_mod || matches!(shortcut.as_deref(), Some("x" | "v")),
+                Key::Named(NamedKey::Backspace | NamedKey::Delete) => true,
+                Key::Named(NamedKey::Enter) => is_multiline,
+                _ => false,
+            };
+            if edits {
+                return None;
+            }
+        }
         let editor = &mut self.editor;
         let mut driver = editor.driver(font_ctx, layout_ctx);
         match event.key {
-            Key::Character(c) if action_mod && matches!(c.as_str(), "c" | "x" | "v") => {
-                match c.to_lowercase().as_str() {
-                    "c" => {
+            Key::Character(_) if matches!(shortcut.as_deref(), Some("c" | "x" | "v")) => {
+                match shortcut.as_deref() {
+                    Some("c" | "x") if flags.password => return None,
+                    Some("c") => {
                         if let Some(text) = driver.editor.selected_text() {
                             let _ = shell_provider.set_clipboard_text(text.to_owned());
                         }
+                        // Copying changes nothing: no `input`.
+                        return None;
                     }
-                    "x" => {
-                        if let Some(text) = driver.editor.selected_text() {
-                            let _ = shell_provider.set_clipboard_text(text.to_owned());
-                            driver.delete_selection()
-                        }
+                    Some("x") => {
+                        let text = driver.editor.selected_text()?;
+                        let _ = shell_provider.set_clipboard_text(text.to_owned());
+                        driver.delete_selection();
+                        return Some(GeneratedTextInputEvent::Input);
                     }
-                    "v" => {
+                    _ => {
+                        // The text arrives as a paste (`UiEvent::Paste`).
                         let _ = shell_provider.request_clipboard_text();
                         return None;
                     }
-                    _ => unreachable!(),
                 }
-
-                return Some(GeneratedTextInputEvent::Input);
             }
             Key::Character(c) if action_mod && matches!(c.to_lowercase().as_str(), "a") => {
                 if shift {
@@ -396,7 +423,27 @@ impl TextInputData {
         layout_ctx: &mut LayoutContext<TextBrush>,
         shell_provider: &dyn ShellProvider,
         command: &str,
+        flags: TextFieldFlags,
     ) -> Option<GeneratedTextInputEvent> {
+        // A read-only field takes Cocoa's moves and selections, not its edits.
+        const EDITS: &[&str] = &[
+            "insert",
+            "delete",
+            "paste",
+            "cut",
+            "yank",
+            "transpose",
+            "capitalize",
+            "lowercase",
+            "uppercase",
+            "indent",
+        ];
+        if flags.read_only && EDITS.iter().any(|edit| command.starts_with(edit)) {
+            return None;
+        }
+        if flags.password && matches!(command, "copy:" | "cut:") {
+            return None;
+        }
         let editor = &mut self.editor;
         let mut driver = editor.driver(font_ctx, layout_ctx);
         let is_multiline = self.is_multiline;
@@ -809,6 +856,12 @@ impl TextInputData {
                 ]
             }
             BlitzImeEvent::Commit(text) => {
+                // A single-line field drops pasted line breaks.
+                let text = if self.is_multiline {
+                    text
+                } else {
+                    text.replace(['\r', '\n'], "")
+                };
                 driver.clear_compose();
                 driver.insert_or_replace_selection(&text);
                 let mut events = vec![Generated::Input];

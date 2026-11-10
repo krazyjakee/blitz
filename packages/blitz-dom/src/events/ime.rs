@@ -9,6 +9,14 @@ pub(crate) fn handle_ime_event<F: FnMut(DomEvent)>(
 ) {
     if let Some(node_id) = doc.focus_node_id {
         let node = &mut doc.nodes[node_id];
+        // A read-only field takes no composition and no paste.
+        if node
+            .element_data()
+            .is_some_and(|element| element.text_field_flags().read_only)
+            && matches!(event, BlitzImeEvent::Commit(_) | BlitzImeEvent::Preedit(..))
+        {
+            return;
+        }
         let text_input_data = node
             .data
             .downcast_element_mut()
