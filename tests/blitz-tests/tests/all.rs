@@ -14,6 +14,7 @@ mod anonymous_block_percentage_height;
 mod anonymous_block_restyle;
 mod autofocus_attribute;
 mod background_size;
+mod background_svg_tiling;
 mod br_trailing_line;
 mod button_alignment;
 mod checked_attribute;
