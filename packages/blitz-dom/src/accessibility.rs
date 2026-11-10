@@ -16,6 +16,7 @@ impl BaseDocument {
         let mut labelled_by_nodes = Vec::new();
         let mut described_by_nodes = Vec::new();
         let mut id_ref_nodes = Vec::new();
+        let mut labels = Vec::new();
 
         self.visit(|node_id, node| {
             if node.is_hidden_from_accessibility_tree()
@@ -39,6 +40,9 @@ impl BaseDocument {
             }
             if node.attr(local_name!("aria-describedby")).is_some() {
                 described_by_nodes.push(node_id);
+            }
+            if node.data.is_element_with_tag_name(&local_name!("label")) {
+                labels.push(node_id);
             }
             if node.attr(local_name!("aria-activedescendant")).is_some()
                 || node.attr(local_name!("aria-controls")).is_some()
@@ -90,6 +94,39 @@ impl BaseDocument {
             nodes.insert(node_id, (id, builder));
         }
 
+        // A form control without `aria-label` or `aria-labelledby` is named
+        // by its labels: `<label for>` or the `<label>` around it
+        // (https://www.w3.org/TR/html-aam-1.0/#input-type-text-input-type-password-input-type-number-input-type-search-input-type-tel-input-type-email-input-type-url-and-textarea-element-accessible-name-computation).
+        let mut control_labels: Vec<(BlitzDomNodeId, FlatText)> = Vec::new();
+        for label_id in labels {
+            let Some(control) = self.labelled_control(label_id) else {
+                continue;
+            };
+            let control_node = &self.nodes[control];
+            if control_node.attr(local_name!("aria-label")).is_some()
+                || control_node.attr(local_name!("aria-labelledby")).is_some()
+            {
+                continue;
+            }
+            let index = match control_labels.iter().position(|(id, _)| *id == control) {
+                Some(index) => index,
+                None => {
+                    control_labels.push((control, FlatText::default()));
+                    control_labels.len() - 1
+                }
+            };
+            let text = &mut control_labels[index].1;
+            text.break_word();
+            self.nodes[label_id].write_flat_text_content_except(control, text);
+        }
+        for (control, text) in control_labels {
+            if let Some((_, builder)) = nodes.get_mut(&control)
+                && !text.text.is_empty()
+            {
+                builder.set_label(text.text.as_str());
+            }
+        }
+
         // `aria-activedescendant` and `aria-controls` name other elements by
         // id: like the labels above, they need every node built first.
         for node_id in id_ref_nodes {
@@ -137,6 +174,41 @@ impl BaseDocument {
             nodes,
             tree: Some(tree),
             focus: NodeId(self.focus_node_id.map(|id| id.as_u64()).unwrap_or(u64::MAX)),
+        }
+    }
+
+    /// The form control a `<label>` labels: the element its `for` names, or
+    /// the first labelable element inside it.
+    fn labelled_control(&self, label_id: BlitzDomNodeId) -> Option<BlitzDomNodeId> {
+        let is_labelable = |id: BlitzDomNodeId| {
+            self.nodes[id].element_data().is_some_and(|el| {
+                matches!(
+                    &*el.name.local,
+                    "button" | "input" | "meter" | "output" | "progress" | "select" | "textarea"
+                ) && !(el.name.local == local_name!("input")
+                    && el.attr(local_name!("type")) == Some("hidden"))
+            })
+        };
+        match self.nodes[label_id].attr(local_name!("for")) {
+            Some(for_id) => self
+                .referenced_dom_ids_to_node_ids(for_id.trim_ascii())
+                .next()
+                .filter(|id| is_labelable(*id)),
+            None => {
+                let mut stack: Vec<_> = self.nodes[label_id]
+                    .children
+                    .iter()
+                    .rev()
+                    .copied()
+                    .collect();
+                while let Some(id) = stack.pop() {
+                    if is_labelable(id) {
+                        return Some(id);
+                    }
+                    stack.extend(self.nodes[id].children.iter().rev().copied());
+                }
+                None
+            }
         }
     }
 
@@ -267,11 +339,21 @@ impl BlitzDomNode {
     }
 
     fn write_flat_text_content(&self, out: &mut FlatText) {
+        self.write_flat_text_content_except(BlitzDomNodeId::default(), out);
+    }
+
+    /// The text content, leaving out the subtree of `except` (a labelled
+    /// control inside its label).
+    fn write_flat_text_content_except(&self, except: BlitzDomNodeId, out: &mut FlatText) {
+        if self.id == except {
+            return;
+        }
         match &self.data {
             NodeData::Text(data) => out.push(&data.content),
             NodeData::Element(..) | NodeData::AnonymousBlock(..) => {
                 for &child_id in &self.children {
-                    self.with(child_id).write_flat_text_content(out);
+                    self.with(child_id)
+                        .write_flat_text_content_except(except, out);
                 }
             }
             _ => {}

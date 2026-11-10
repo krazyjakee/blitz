@@ -155,3 +155,18 @@ fn bounds_and_actions() {
         .1;
     assert_eq!(window.transform().map(|t| t.as_coeffs()[0]), Some(2.0));
 }
+
+#[test]
+fn labels_name_their_controls() {
+    let (doc, tree) = tree(
+        r#"<label><input id="wrapped" type="checkbox"> Show hidden games</label>
+        <label for="field">Install folder</label><input id="field">
+        <label for="named">Ignored</label><input id="named" aria-label="Own name">"#,
+    );
+    assert_eq!(
+        node(&doc, &tree, "wrapped").label(),
+        Some("Show hidden games")
+    );
+    assert_eq!(node(&doc, &tree, "field").label(), Some("Install folder"));
+    assert_eq!(node(&doc, &tree, "named").label(), Some("Own name"));
+}
