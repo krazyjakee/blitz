@@ -200,7 +200,7 @@ impl<Rend: WindowRenderer> View<Rend> {
         let viewport_height = size
             .height
             .saturating_sub(safe_area_insets.top + safe_area_insets.bottom);
-        let viewport = Viewport::new(viewport_width, viewport_height, scale, color_scheme);
+        let mut viewport = Viewport::new(viewport_width, viewport_height, scale, color_scheme);
 
         // Create shell provider
         let shell_provider =
@@ -208,6 +208,11 @@ impl<Rend: WindowRenderer> View<Rend> {
 
         let mut doc = config.doc;
         let mut inner = doc.inner_mut();
+        // winit doesn't report the system's reduced-motion setting: the
+        // embedder sets it on the document (`viewport_mut()`), before or after
+        // the window opens; `BLITZ_PREFERS_REDUCED_MOTION=1` forces it.
+        viewport.prefers_reduced_motion = inner.viewport().prefers_reduced_motion
+            || std::env::var("BLITZ_PREFERS_REDUCED_MOTION").is_ok_and(|v| v == "1");
         inner.set_viewport(viewport);
         inner.set_shell_provider(Arc::new(shell_provider));
 

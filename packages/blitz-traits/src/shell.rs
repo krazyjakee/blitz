@@ -86,6 +86,8 @@ pub struct Viewport {
     pub window_size: (u32, u32),
     pub hidpi_scale: f32,
     pub zoom: f32,
+    /// The user asked for reduced motion (`prefers-reduced-motion: reduce`).
+    pub prefers_reduced_motion: bool,
 }
 
 impl Default for Viewport {
@@ -95,6 +97,7 @@ impl Default for Viewport {
             hidpi_scale: 1.0,
             zoom: 1.0,
             color_scheme: ColorScheme::Light,
+            prefers_reduced_motion: false,
         }
     }
 }
@@ -111,6 +114,7 @@ impl Viewport {
             hidpi_scale: scale_factor,
             zoom: 1.0,
             color_scheme,
+            prefers_reduced_motion: false,
         }
     }
 
