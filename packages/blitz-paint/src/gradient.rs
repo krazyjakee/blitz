@@ -88,13 +88,16 @@ pub(crate) fn to_peniko_gradient(
 fn linear_gradient(
     gradient: LinearGradient,
     rect: Rect,
-    bounding_box: Rect,
+    _bounding_box: Rect,
     scale: f64,
     current_color: &AbsoluteColor,
 ) -> (peniko::Gradient, Option<Affine>) {
     let (direction, items, flags) = gradient;
 
-    let center = bounding_box.center();
+    // The gradient line is centred on the gradient box: the image's own
+    // rectangle (a background tile when `background-size` sizes it), not the
+    // element's border box.
+    let center = rect.center();
     let (start, end) = match direction {
         LineDirection::Angle(angle) => {
             let angle = -angle.radians64() + std::f64::consts::PI;
