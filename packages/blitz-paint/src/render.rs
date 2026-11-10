@@ -1120,6 +1120,34 @@ impl ElementCx<'_, '_> {
             let transform = self.transform
                 * Affine::translate((pos.x * self.scale - scroll_x, pos.y * self.scale - scroll_y));
 
+            // An empty input shows its placeholder, under the caret.
+            if input_data.shows_placeholder()
+                && let Some(placeholder) = &input_data.placeholder
+                && let Some(layout) = placeholder.editor.try_layout()
+            {
+                // A single-line input centres its placeholder as it does its text.
+                let shift = if input_data.is_multiline {
+                    0.0
+                } else {
+                    let text = input_data.editor.try_layout().map_or(0.0, |text| text.height());
+                    f64::from((text - layout.height()) / 2.0)
+                };
+                let mut draw_text_context = self.context.draw_text_context.borrow_mut();
+                crate::text::stroke_text(
+                    scene,
+                    layout.lines(),
+                    self.context.dom,
+                    transform * Affine::translate((0.0, shift)),
+                    TextPaintOptions {
+                        scale: self.scale,
+                        brush_override: Some(placeholder.color.as_srgb_color()),
+                    },
+                    self.node.id,
+                    &mut draw_text_context,
+                    None,
+                );
+            }
+
             if self.node.is_focussed() {
                 // Render selection/caret
                 let selection_color = self

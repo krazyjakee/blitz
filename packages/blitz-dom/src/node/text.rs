@@ -99,6 +99,34 @@ pub struct TextInputData {
     /// `final_layout`. Paint draws text from the unrounded origin so that it keeps its sub-pixel
     /// position while box edges stay snapped. Set by the `writing-mode` layout pass; zero otherwise.
     pub content_box_subpixel_offset: taffy::Point<f32>,
+    /// The `placeholder` attribute's text in the `::placeholder` style, shown while the input
+    /// is empty and nothing is being composed in it.
+    pub placeholder: Option<TextInputPlaceholder>,
+}
+
+/// A text input's placeholder, laid out like the input's own text but in its `::placeholder`
+/// style.
+pub struct TextInputPlaceholder {
+    /// Holds the placeholder's layout: never edited, but sized and scaled as the input's
+    /// editor is.
+    pub editor: Box<parley::PlainEditor<TextBrush>>,
+    /// The `::placeholder` colour, its opacity applied.
+    pub color: style::color::AbsoluteColor,
+}
+
+impl TextInputPlaceholder {
+    /// Lays the placeholder out again after a change of width or scale.
+    pub fn refresh_layout(
+        &mut self,
+        font_ctx: &mut FontContext,
+        layout_ctx: &mut LayoutContext<TextBrush>,
+        width: Option<f32>,
+        scale: f32,
+    ) {
+        self.editor.set_scale(scale);
+        self.editor.set_width(width);
+        self.editor.refresh_layout(font_ctx, layout_ctx);
+    }
 }
 
 // FIXME: Implement Clone for PlainEditor
@@ -116,7 +144,15 @@ impl TextInputData {
             is_multiline,
             scroll_offset: 0.0,
             content_box_subpixel_offset: taffy::Point::ZERO,
+            placeholder: None,
         }
+    }
+
+    /// Whether the placeholder shows: the input is empty and no composition (an IME's
+    /// preedit) is in progress.
+    pub fn shows_placeholder(&self) -> bool {
+        // The raw text includes a preedit; an IME may compose before it has any text.
+        self.placeholder.is_some() && self.editor.raw_text().is_empty() && !self.editor.is_composing()
     }
 
     pub fn set_text(

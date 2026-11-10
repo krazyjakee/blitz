@@ -318,11 +318,19 @@ impl LayoutPassState<'_> {
                             .downcast_element_mut()
                             .and_then(|el| el.text_input_data_mut())
                         {
+                            let mut font_ctx = doc.font_ctx.lock().unwrap();
                             input.editor.set_width(Some(content_width * scale));
-                            input.editor.refresh_layout(
-                                &mut doc.font_ctx.lock().unwrap(),
-                                &mut doc.layout_ctx,
-                            );
+                            input
+                                .editor
+                                .refresh_layout(&mut font_ctx, &mut doc.layout_ctx);
+                            if let Some(placeholder) = &mut input.placeholder {
+                                placeholder.refresh_layout(
+                                    &mut font_ctx,
+                                    &mut doc.layout_ctx,
+                                    Some(content_width * scale),
+                                    scale,
+                                );
+                            }
                         }
                     }
                     return output;
