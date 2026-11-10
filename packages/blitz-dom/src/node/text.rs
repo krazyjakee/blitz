@@ -26,6 +26,9 @@ pub struct TextLayout {
     pub text: String,
     pub content_widths: Option<ContentWidths>,
     pub layout: parley::layout::Layout<TextBrush>,
+    /// Lines truncated by `text-overflow`, computed after layout
+    /// (`layout::text_overflow`), consumed by the painter.
+    pub overflow: Option<Box<crate::text_overflow::TextOverflowLayout>>,
     /// Block-axis offset (in CSS px) of the line boxes from the top of the container's content
     /// box, as applied by `align-content`.
     pub block_offset: f32,
