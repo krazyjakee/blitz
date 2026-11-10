@@ -80,6 +80,17 @@ pub struct SvgImageData {
     pub tree: Arc<usvg::Tree>,
     /// The dimensions declared on the root `<svg>` element.
     pub intrinsic_dimensions: SvgIntrinsicDimensions,
+    /// A hash of the source this was parsed from: an inline `<svg>` whose
+    /// serialized source still hashes the same needn't be rebuilt.
+    pub source_hash: u64,
+}
+
+/// The hash [`SvgImageData::source_hash`] holds for `data`.
+pub fn svg_source_hash(data: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    data.hash(&mut hasher);
+    hasher.finish()
 }
 
 impl SvgImageData {
@@ -90,6 +101,7 @@ impl SvgImageData {
     /// Like [`usvg::Tree::from_data`], gzip-compressed data (SVGZ) is
     /// decompressed first.
     pub fn from_data(data: &[u8], options: &usvg::Options) -> Result<Self, usvg::Error> {
+        let source_hash = svg_source_hash(data);
         // Gzip magic bytes, matching the SVGZ detection in `usvg::Tree::from_data`.
         let decompressed;
         let data = if data.starts_with(&[0x1f, 0x8b]) {
@@ -110,6 +122,7 @@ impl SvgImageData {
         Ok(Self {
             tree: Arc::new(tree),
             intrinsic_dimensions: SvgIntrinsicDimensions::from_xmltree(&doc),
+            source_hash,
         })
     }
 

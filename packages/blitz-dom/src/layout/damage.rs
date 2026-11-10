@@ -120,11 +120,18 @@ impl BaseDocument {
         // An inline `<svg>` is rendered from a snapshot of its subtree (with
         // `currentColor` resolved) taken during box construction, so it must be
         // rebuilt whenever the style of the `<svg>` or any descendant changes.
+        //
+        // A change to the `<svg>`'s own transform (or anything else outside its
+        // source) leaves the snapshot as it is: rebuild only when the
+        // serialized source changed.
         #[cfg(feature = "svg")]
         if !damage.is_empty()
             && self.nodes[node_id]
                 .data
                 .is_element_with_tag_name(&local_name!("svg"))
+            && !(damage_from_children.is_empty()
+                && RestyleDamage::RECALCULATE_OVERFLOW.contains(own_damage)
+                && self.svg_source_unchanged(node_id))
         {
             damage.insert(CONSTRUCT_BOX);
         }
@@ -193,6 +200,19 @@ impl BaseDocument {
 
         // Propagate damage to parent
         damage_for_parent
+    }
+
+    /// Whether an inline `<svg>`'s snapshot was built from the source it would
+    /// serialize to now.
+    #[cfg(feature = "svg")]
+    fn svg_source_unchanged(&self, node_id: NodeId) -> bool {
+        let node = &self.nodes[node_id];
+        let Some(crate::node::ImageData::Svg(svg)) =
+            node.element_data().and_then(|el| el.image_data())
+        else {
+            return false;
+        };
+        svg.source_hash == crate::node::svg_source_hash(node.svg_source().as_bytes())
     }
 
     /// Refresh owned anonymous boxes without revisiting their DOM children.
