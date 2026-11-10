@@ -766,19 +766,29 @@ impl Node {
         }
         self.mark_ancestors_dirty();
 
-        // If focussing a text input, enable IME and set IME area
-        if self
+        // If focussing a text input, enable IME for its purpose, with its
+        // content box as the caret area until the next resolve places it
+        // at the caret (`BaseDocument::update_ime_cursor_area`).
+        if let Some(element) = self
             .element_data()
-            .and_then(|elem| elem.text_input_data())
-            .is_some()
+            .filter(|elem| elem.text_input_data().is_some())
         {
-            shell_provider.set_ime_enabled(true);
+            use blitz_traits::shell::TextInputPurpose;
+            let purpose = match element.attr(local_name!("type")) {
+                Some("password") => TextInputPurpose::Password,
+                Some("email") => TextInputPurpose::Email,
+                Some("number") => TextInputPurpose::Number,
+                Some("tel") => TextInputPurpose::Phone,
+                Some("url") => TextInputPurpose::Url,
+                _ => TextInputPurpose::Normal,
+            };
+            let layout = self.final_layout();
             let mut pos = self.absolute_position(0.0, 0.0);
-            pos.x += self.final_layout().content_box_x();
-            pos.y += self.final_layout().content_box_y();
+            pos.x += layout.border.left + layout.padding.left;
+            pos.y += layout.border.top + layout.padding.top;
             let width = self.final_layout().content_box_width();
             let height = self.final_layout().content_box_height();
-            shell_provider.set_ime_cursor_area(pos.x, pos.y, width, height);
+            shell_provider.enable_ime(purpose, pos.x, pos.y, width, height);
         }
     }
 
