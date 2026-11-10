@@ -43,7 +43,7 @@ fn includes_aria_labelledby_as_labelled_by_for_one_node() -> TestResult<()> {
     let (label_node_id, _) = tree_update
         .nodes
         .iter()
-        .find(|(_, node)| node.role() == Role::Label)
+        .find(|(_, node)| node.role() == Role::Label && node.html_tag() == Some("label"))
         .expect("Label must be present in accessibility tree");
     verify_that!(
         tree_update.nodes,
@@ -87,7 +87,7 @@ fn includes_aria_labelledby_as_labelled_by_for_two_nodes() -> TestResult<()> {
         tree_update
             .nodes
             .iter()
-            .find(|(_, node)| node.role() == Role::Label)
+            .find(|(_, node)| node.role() == Role::Label && node.html_tag() == Some("label"))
             .expect("Expected to find label another-element in the tree")
             .0,
     );
@@ -302,4 +302,29 @@ fn default_document_config() -> DocumentConfig {
         html_parser_provider: Some(Arc::new(HtmlProvider) as _),
         ..Default::default()
     }
+}
+
+#[test]
+fn text_is_a_label_with_its_text_as_value() {
+    let mut document = HtmlDocument::from_html(
+        r#"<html><button>Play</button></html>"#,
+        default_document_config(),
+    );
+    document.resolve(0.0);
+
+    let tree_update = document.build_accessibility_tree();
+
+    // AccessKit names the button from a label target's value.
+    let (text_id, text) = tree_update
+        .nodes
+        .iter()
+        .find(|(_, node)| node.value() == Some("Play"))
+        .expect("the text must be in the accessibility tree");
+    assert_eq!(text.role(), Role::Label);
+    let (_, button) = tree_update
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::Button)
+        .expect("the button must be in the accessibility tree");
+    assert!(button.labelled_by().contains(text_id));
 }
