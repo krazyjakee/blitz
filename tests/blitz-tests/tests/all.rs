@@ -74,6 +74,7 @@ mod svg_attr_sizing;
 mod svg_background_size;
 mod text_input_clipboard;
 mod text_input_ime;
+mod text_input_selection;
 mod text_selection_anonymous_block;
 mod text_transform;
 mod touch_action;
