@@ -2,8 +2,8 @@ use crate::{
     BaseDocument, ElementData, Node as BlitzDomNode, NodeData, NodeId as BlitzDomNodeId, local_name,
 };
 use accesskit::{
-    Affine, AriaCurrent, HasPopup, Invalid, Live, Node as AccessKitNode, NodeId, Orientation, Rect,
-    Role, Toggled, TreeId, TreeInfo, TreeUpdate,
+    Action, Affine, AriaCurrent, HasPopup, Invalid, Live, Node as AccessKitNode, NodeId,
+    Orientation, Rect, Role, Toggled, TreeId, TreeInfo, TreeUpdate,
 };
 use style::properties::longhands::visibility;
 use stylo_taffy::CopyStyleGetters;
@@ -216,6 +216,7 @@ impl BaseDocument {
             }
 
             set_states_and_properties(&mut builder, element_data, &name, role);
+            add_actions(&mut builder, node, element_data, role);
 
             if let Some(rect) = self.get_client_bounding_rect(node.id) {
                 builder.set_bounds(Rect::new(
@@ -564,6 +565,55 @@ fn set_states_and_properties(
         && let Some(href) = attr(local_name!("href"))
     {
         builder.set_url(href);
+    }
+}
+
+/// What an assistive technology can do with the element; the shell routes
+/// its requests to DOM events (`UiEvent::Accessibility`).
+fn add_actions(
+    builder: &mut AccessKitNode,
+    node: &BlitzDomNode,
+    element_data: &ElementData,
+    role: Role,
+) {
+    builder.add_action(Action::ScrollIntoView);
+    if builder.is_disabled() {
+        return;
+    }
+    let focusable = node.is_focussable();
+    if focusable {
+        builder.add_action(Action::Focus);
+    }
+    if focusable
+        || matches!(
+            role,
+            Role::Button
+                | Role::DefaultButton
+                | Role::Link
+                | Role::CheckBox
+                | Role::RadioButton
+                | Role::Switch
+                | Role::MenuItem
+                | Role::MenuItemCheckBox
+                | Role::MenuItemRadio
+                | Role::Tab
+                | Role::ListBoxOption
+                | Role::TreeItem
+                | Role::DisclosureTriangle
+                | Role::ComboBox
+        )
+    {
+        builder.add_action(Action::Click);
+    }
+    match element_data.attr(local_name!("aria-expanded")) {
+        Some("true") => builder.add_action(Action::Collapse),
+        Some("false") => builder.add_action(Action::Expand),
+        _ => {}
+    }
+    if matches!(role, Role::Slider | Role::SpinButton) {
+        builder.add_action(Action::Increment);
+        builder.add_action(Action::Decrement);
+        builder.add_action(Action::SetValue);
     }
 }
 

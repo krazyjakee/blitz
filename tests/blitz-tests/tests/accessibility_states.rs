@@ -1,5 +1,5 @@
 use accesskit::{
-    AriaCurrent, HasPopup, Invalid, Live, Node as AccessKitNode, NodeId, Orientation, Role,
+    Action, AriaCurrent, HasPopup, Invalid, Live, Node as AccessKitNode, NodeId, Orientation, Role,
     Toggled, TreeUpdate,
 };
 use blitz_dom::DocumentConfig;
@@ -80,6 +80,7 @@ fn values() {
     assert_eq!(slider.max_numeric_value(), Some(50.0));
     assert_eq!(slider.value(), Some("30 percent"));
     assert_eq!(slider.orientation(), Some(Orientation::Horizontal));
+    assert!(slider.supports_action(Action::Increment));
     let progress = node(&doc, &tree, "progress");
     assert_eq!(progress.numeric_value(), Some(0.25));
     assert_eq!(progress.max_numeric_value(), Some(1.0));
@@ -114,6 +115,7 @@ fn properties_and_relations() {
     assert_eq!(field.invalid(), Some(Invalid::True));
     let menu = node(&doc, &tree, "menu");
     assert_eq!(menu.has_popup(), Some(HasPopup::Menu));
+    assert!(menu.supports_action(Action::Expand));
     let list_id = NodeId(doc.get_element_by_id("list").unwrap().as_u64());
     assert_eq!(menu.controls(), &[list_id]);
     let second_id = NodeId(doc.get_element_by_id("second").unwrap().as_u64());
@@ -127,10 +129,11 @@ fn properties_and_relations() {
     assert_eq!(node(&doc, &tree, "tokens").role(), Role::Button);
     let off = node(&doc, &tree, "off");
     assert!(off.is_disabled());
+    assert!(!off.supports_action(Action::Click));
 }
 
 #[test]
-fn bounds() {
+fn bounds_and_actions() {
     let (doc, tree) = tree(
         r#"<button id="button" style="position: absolute; left: 10px; top: 20px; width: 100px; height: 30px; margin: 0; box-sizing: border-box">Play</button>"#,
     );
@@ -140,6 +143,9 @@ fn bounds() {
         (bounds.x0, bounds.y0, bounds.x1, bounds.y1),
         (10.0, 20.0, 110.0, 50.0)
     );
+    assert!(button.supports_action(Action::Focus));
+    assert!(button.supports_action(Action::Click));
+    assert!(button.supports_action(Action::ScrollIntoView));
     // The window scales CSS pixels to the window's.
     let window = &tree
         .nodes
