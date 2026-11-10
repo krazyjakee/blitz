@@ -34,6 +34,8 @@ data-uri = ["blitz-shell/data-uri"]
 # Renderer features
 vello = ["dep:anyrender_vello", "dep:wgpu_context"]
 vello-hybrid = ["dep:anyrender_vello_hybrid", "dep:wgpu_context"]
+# vello_hybrid on a GPU, vello_cpu (repainting only damage) without a usable one.
+gpu-cpu-fallback = ["vello-hybrid", "vello-cpu-softbuffer"]
 skia = ["dep:anyrender_skia"]
 skia-pixels = ["skia-raster-base", "anyrender_skia/pixels_window_renderer"]
 skia-softbuffer = ["skia-raster-base", "anyrender_skia/softbuffer_window_renderer"]
