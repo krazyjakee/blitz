@@ -72,6 +72,7 @@ mod stale_node_mapping;
 mod style_property_invalidation;
 mod svg_attr_sizing;
 mod svg_background_size;
+mod selection_pseudo;
 mod text_input_clipboard;
 mod text_input_ime;
 mod text_input_selection;

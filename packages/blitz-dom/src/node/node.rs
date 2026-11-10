@@ -1159,6 +1159,29 @@ impl Node {
         Some(&attr.value)
     }
 
+    /// The background of selected text in this node: its `::selection`
+    /// style's, or its nearest ancestor's (as highlights inherit). `None`
+    /// when no `::selection` rule applies, for the default highlight.
+    pub fn selection_background(&self) -> Option<style::color::AbsoluteColor> {
+        use style::selector_parser::PseudoElement;
+        let mut node = Some(self);
+        while let Some(current) = node {
+            if let Some(data) = current.try_stylo_element_data().and_then(|data| data.get())
+                && let Some(selection) = data.styles.pseudos.get(&PseudoElement::Selection)
+            {
+                let text = selection.get_inherited_text().color;
+                return Some(
+                    selection
+                        .get_background()
+                        .background_color
+                        .resolve_to_absolute(&text),
+                );
+            }
+            node = current.parent.map(|id| self.with(id));
+        }
+        None
+    }
+
     pub fn primary_styles(&self) -> Option<impl Deref<Target = ServoArc<ComputedValues>>> {
         self.try_stylo_element_data()
             .and_then(|stylo| stylo.primary_styles())

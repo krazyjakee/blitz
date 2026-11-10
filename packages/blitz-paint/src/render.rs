@@ -1038,12 +1038,18 @@ impl ElementCx<'_, '_> {
 
             // Render text selection highlight (if any) using cached selection ranges
             if let Some(&(sel_start, sel_end)) = self.context.selection_ranges.get(&self.node.id) {
+                let color = self
+                    .node
+                    .selection_background()
+                    .map(|color| color.as_srgb_color())
+                    .unwrap_or(SELECTION_COLOR);
                 crate::text::draw_text_selection(
                     scene,
                     &text_layout.layout,
                     transform,
                     sel_start,
                     sel_end,
+                    color,
                 );
             }
 
@@ -1091,11 +1097,16 @@ impl ElementCx<'_, '_> {
 
             if self.node.is_focussed() {
                 // Render selection/caret
+                let selection_color = self
+                    .node
+                    .selection_background()
+                    .map(|color| color.as_srgb_color())
+                    .unwrap_or(SELECTION_COLOR);
                 for (rect, _line_idx) in input_data.editor.selection_geometry().iter() {
                     scene.fill(
                         Fill::NonZero,
                         transform,
-                        SELECTION_COLOR,
+                        selection_color,
                         None,
                         &convert_rect(rect),
                     );
