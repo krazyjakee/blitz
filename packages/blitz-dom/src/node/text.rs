@@ -122,9 +122,16 @@ impl TextInputData {
         layout_ctx: &mut LayoutContext<TextBrush>,
         text: &str,
     ) {
+        // The same value again (a controlled field re-rendering) changes
+        // nothing: the caret, the selection and a composition stay.
         if self.editor.text() != text {
+            // A new value replaces a composition in progress, and the caret
+            // goes to its end, as a browser puts it.
+            self.editor.driver(font_ctx, layout_ctx).clear_compose();
             self.editor.set_text(text);
-            self.editor.driver(font_ctx, layout_ctx).refresh_layout();
+            let mut driver = self.editor.driver(font_ctx, layout_ctx);
+            driver.refresh_layout();
+            driver.move_to_text_end();
         }
     }
 
@@ -1007,6 +1014,27 @@ mod tests {
             },
         );
         assert_eq!(input.editor.text(), "a");
+    }
+
+    #[test]
+    fn setting_the_value_keeps_or_ends_a_composition() {
+        let mut input = TextInputData::new(false);
+        let mut font_ctx = FontContext::new();
+        let mut layout_ctx = LayoutContext::new();
+        input.set_text(&mut font_ctx, &mut layout_ctx, "ab");
+        input.apply_ime_event(
+            &mut font_ctx,
+            &mut layout_ctx,
+            BlitzImeEvent::Preedit("x".into(), None),
+        );
+        // The same value: the composition goes on.
+        input.set_text(&mut font_ctx, &mut layout_ctx, "ab");
+        assert!(input.editor.is_composing());
+        // A new value ends it, with the caret at the end.
+        input.set_text(&mut font_ctx, &mut layout_ctx, "hello");
+        assert!(!input.editor.is_composing());
+        assert_eq!(input.editor.text(), "hello");
+        assert_eq!(input.editor.raw_selection().focus().index(), 5);
     }
 
     #[test]
