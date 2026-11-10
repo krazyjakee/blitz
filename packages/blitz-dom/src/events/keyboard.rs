@@ -3,7 +3,7 @@ use crate::{BaseDocument, node::GeneratedTextInputEvent, util::ACTION_MOD};
 use blitz_traits::node_id::NodeId;
 use blitz_traits::{
     SmolStr,
-    events::{BlitzInputEvent, BlitzKeyEvent, DomEvent, DomEventData},
+    events::{BlitzCompositionEvent, BlitzInputEvent, BlitzKeyEvent, DomEvent, DomEventData},
 };
 use keyboard_types::{Key, Modifiers, NamedKey};
 use markup5ever::local_name;
@@ -113,7 +113,8 @@ impl BaseDocument {
 
         match event {
             GeneratedTextInputEvent::Input => {
-                let value = input_data.editor.raw_text().to_string();
+                // The value without an IME's preedit, which isn't text yet.
+                let value = input_data.editor.text().to_string();
                 // The value is in the accessibility tree.
                 self.has_changes = true;
                 dispatch_event(DomEvent::new(
@@ -123,6 +124,27 @@ impl BaseDocument {
                 self.shell_provider.request_redraw();
             }
             GeneratedTextInputEvent::Select | GeneratedTextInputEvent::PreEditChange => {
+                self.shell_provider.request_redraw();
+            }
+            GeneratedTextInputEvent::CompositionStart => {
+                dispatch_event(DomEvent::new(
+                    node_id,
+                    DomEventData::CompositionStart(BlitzCompositionEvent {
+                        data: String::new(),
+                    }),
+                ));
+            }
+            GeneratedTextInputEvent::CompositionUpdate(data) => {
+                dispatch_event(DomEvent::new(
+                    node_id,
+                    DomEventData::CompositionUpdate(BlitzCompositionEvent { data }),
+                ));
+            }
+            GeneratedTextInputEvent::CompositionEnd(data) => {
+                dispatch_event(DomEvent::new(
+                    node_id,
+                    DomEventData::CompositionEnd(BlitzCompositionEvent { data }),
+                ));
                 self.shell_provider.request_redraw();
             }
             GeneratedTextInputEvent::Submit => {
