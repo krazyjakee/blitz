@@ -47,15 +47,31 @@ impl ElementCx<'_, '_> {
 
         // Content outside of the mask painting area (at largest the border box) has
         // a mask alpha of 0, so we can clip the isolation layer to the border box.
-        scene.push_layer(
-            Fill::NonZero,
-            Mix::Normal,
-            ALMOST_OPAQUE,
-            self.transform,
-            &self.frame.border_box_path(),
-            None,
-            None,
-        );
+        let border_box = self.frame.border_box_path();
+        match self
+            .context
+            .layer_manager
+            .damage_clip(self.transform, &border_box)
+        {
+            Some(damage) => scene.push_layer(
+                Fill::NonZero,
+                Mix::Normal,
+                ALMOST_OPAQUE,
+                kurbo::Affine::IDENTITY,
+                &damage,
+                None,
+                None,
+            ),
+            None => scene.push_layer(
+                Fill::NonZero,
+                Mix::Normal,
+                ALMOST_OPAQUE,
+                self.transform,
+                &border_box,
+                None,
+                None,
+            ),
+        }
         true
     }
 
@@ -67,15 +83,32 @@ impl ElementCx<'_, '_> {
             return;
         }
 
-        scene.push_layer(
-            Fill::NonZero,
-            BlendMode::new(Mix::Normal, Compose::DestIn),
-            1.0,
-            self.transform,
-            &self.frame.border_box_path(),
-            None,
-            None,
-        );
+        let border_box = self.frame.border_box_path();
+        let blend = BlendMode::new(Mix::Normal, Compose::DestIn);
+        match self
+            .context
+            .layer_manager
+            .damage_clip(self.transform, &border_box)
+        {
+            Some(damage) => scene.push_layer(
+                Fill::NonZero,
+                blend,
+                1.0,
+                kurbo::Affine::IDENTITY,
+                &damage,
+                None,
+                None,
+            ),
+            None => scene.push_layer(
+                Fill::NonZero,
+                blend,
+                1.0,
+                self.transform,
+                &border_box,
+                None,
+                None,
+            ),
+        }
         self.draw_css_mask(scene);
         scene.pop_layer(); // Mask (DestIn) layer
         scene.pop_layer(); // Isolation layer

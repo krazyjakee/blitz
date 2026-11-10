@@ -107,7 +107,12 @@ impl crate::document::BaseDocument {
                 continue;
             }
 
-            self.nodes[node_id].set_restyle_hint(RestyleHint::RESTYLE_SELF);
+            // Only sets with something to tick need restyling: a paused (or
+            // finished) animation's value doesn't change. One finishing on this
+            // tick still needs it, to drop its values.
+            if set.needs_animation_ticks() {
+                self.nodes[node_id].set_restyle_hint(RestyleHint::RESTYLE_SELF);
+            }
 
             for animation in set.animations.iter_mut() {
                 if animation.state == AnimationState::Pending && animation.started_at <= now {
@@ -207,6 +212,51 @@ impl crate::document::BaseDocument {
             }
         }
         self.has_active_animations = sets.values().any(|state| state.needs_animation_ticks());
+
+        // When every running animation changes only in steps, when the next
+        // change is due: nothing needs a frame before then.
+        self.damage_state.next_change = None;
+        if self.has_active_animations {
+            let mut next = f64::INFINITY;
+            'sets: for set in sets.values() {
+                if set
+                    .transitions
+                    .iter()
+                    .any(|t| matches!(t.state, AnimationState::Pending | AnimationState::Running))
+                {
+                    next = f64::NAN;
+                    break;
+                }
+                for animation in set.animations.iter() {
+                    if !matches!(
+                        animation.state,
+                        AnimationState::Pending | AnimationState::Running
+                    ) {
+                        continue;
+                    }
+                    match animation.next_change_after(now) {
+                        Some(at) => next = next.min(at),
+                        None => {
+                            next = f64::NAN;
+                            break 'sets;
+                        }
+                    }
+                }
+            }
+            self.damage_state.next_change = next.is_finite().then_some(next);
+        }
+
+        // The nodes those animations paint, for damage-limited repaint.
+        self.damage_state.animating.clear();
+        for key in sets.keys() {
+            let node_id = NodeId::from_u64(key.node.id() as u64);
+            let painted = match key.pseudo_element {
+                Some(PseudoElement::Before) => self.nodes.get(node_id).and_then(|n| n.before()),
+                Some(PseudoElement::After) => self.nodes.get(node_id).and_then(|n| n.after()),
+                _ => Some(node_id),
+            };
+            self.damage_state.animating.extend(painted);
+        }
 
         // Maybe run garbage collection. Stylo has internal to determine whether to run or not.
         self.stylist.rule_tree().maybe_gc();

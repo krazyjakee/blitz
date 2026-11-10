@@ -7,7 +7,8 @@ use crate::convert_events::{
 use crate::event::{BlitzShellEvent, BlitzShellProxy, create_waker};
 use anyrender::WindowRenderer;
 use blitz_dom::Document;
-use blitz_paint::paint_scene;
+use blitz_dom::PaintDamage;
+use blitz_paint::{paint_scene, paint_scene_damaged};
 use blitz_traits::events::{
     BlitzPointerEvent, BlitzPointerId, BlitzWheelDelta, BlitzWheelEvent, MouseEventButton,
     MouseEventButtons, PointerCoords, PointerDetails, UiEvent,
@@ -95,6 +96,14 @@ pub struct View<Rend: WindowRenderer> {
     /// avoid a reference cycle.
     pub active_events: Arc<AtomicRefCell<Vec<BlitzPointerEvent>>>,
     pub animation_timer: Option<Instant>,
+    /// Something other than an animation tick asked for the next frame, so it
+    /// repaints everything.
+    full_repaint: std::cell::Cell<bool>,
+    /// An animation runs but its last frame changed nothing visible: the next
+    /// tick waits for this time instead of the next vsync.
+    pub next_animation_frame: Option<Instant>,
+    /// `BLITZ_DAMAGE=0` turns damage-limited repaint off (for comparisons).
+    damage_enabled: bool,
     pub is_visible: bool,
     pub safe_area_insets: PhysicalInsets<u32>,
 
@@ -119,6 +128,10 @@ pub struct View<Rend: WindowRenderer> {
     #[cfg(target_os = "ios")]
     pub ios_request_redraw: std::cell::Cell<bool>,
 }
+
+/// How long an animation whose last frame changed nothing waits before ticking
+/// again: one frame at 60 Hz.
+const FRAME_INTERVAL: std::time::Duration = std::time::Duration::from_micros(16_667);
 
 impl<Rend: WindowRenderer> Drop for View<Rend> {
     fn drop(&mut self) {
@@ -212,6 +225,9 @@ impl<Rend: WindowRenderer> View<Rend> {
             renderer: config.renderer,
             waker: None,
             animation_timer: None,
+            full_repaint: std::cell::Cell::new(true),
+            next_animation_frame: None,
+            damage_enabled: std::env::var("BLITZ_DAMAGE").map_or(true, |v| v != "0"),
             keyboard_modifiers: Default::default(),
             proxy: proxy.clone(),
             window: winit_window.clone(),
@@ -383,6 +399,18 @@ impl<Rend: WindowRenderer> View<Rend> {
     }
 
     pub fn request_redraw(&self) {
+        self.full_repaint.set(true);
+        if self.renderer.is_active() {
+            self.window.request_redraw();
+            #[cfg(target_os = "ios")]
+            self.ios_request_redraw.set(true);
+        }
+    }
+
+    /// Ask for the next frame of a running animation: unlike
+    /// [`request_redraw`](Self::request_redraw), it may repaint only what the
+    /// animation changed.
+    pub fn request_animation_frame(&self) {
         if self.renderer.is_active() {
             self.window.request_redraw();
             #[cfg(target_os = "ios")]
@@ -393,6 +421,8 @@ impl<Rend: WindowRenderer> View<Rend> {
     pub fn redraw(&mut self) {
         #[cfg(target_os = "ios")]
         self.ios_request_redraw.set(false);
+        let full_repaint = self.full_repaint.replace(false) || !self.damage_enabled;
+        self.next_animation_frame = None;
         let animation_time = self.current_animation_time();
         let is_visible = self.is_visible;
 
@@ -408,6 +438,7 @@ impl<Rend: WindowRenderer> View<Rend> {
         let (width, height) = inner.viewport().window_size;
         let scale = inner.viewport().scale_f64();
         let is_animating = inner.is_animating();
+        let next_change = inner.next_animation_change();
         let is_blocked = inner.has_pending_critical_resources();
         let insets = self.safe_area_insets;
 
@@ -419,24 +450,70 @@ impl<Rend: WindowRenderer> View<Rend> {
             inner.clear_changes();
         }
 
+        let mut painted = false;
         if !is_blocked && is_visible {
-            self.renderer.render(|scene| {
-                paint_scene(
-                    scene,
-                    &mut inner,
-                    scale,
-                    width,
-                    height,
-                    insets.left,
-                    insets.top,
-                )
-            });
+            let damage = if full_repaint {
+                PaintDamage::Full
+            } else {
+                inner.paint_damage()
+            };
+            match damage {
+                // An animation that changed nothing visible (between the steps
+                // of a `steps()` timing function, say): keep the last frame.
+                PaintDamage::None => {}
+                PaintDamage::Rect(damage) if self.renderer.supports_damage() => {
+                    let mut surface_damage = damage;
+                    surface_damage.x0 += insets.left as f64;
+                    surface_damage.x1 += insets.left as f64;
+                    surface_damage.y0 += insets.top as f64;
+                    surface_damage.y1 += insets.top as f64;
+                    self.renderer.render_damage(surface_damage, |scene| {
+                        paint_scene_damaged(
+                            scene,
+                            &mut inner,
+                            scale,
+                            width,
+                            height,
+                            insets.left,
+                            insets.top,
+                            Some(damage),
+                        )
+                    });
+                    painted = true;
+                }
+                _ => {
+                    self.renderer.render(|scene| {
+                        paint_scene(
+                            scene,
+                            &mut inner,
+                            scale,
+                            width,
+                            height,
+                            insets.left,
+                            insets.top,
+                        )
+                    });
+                    painted = true;
+                }
+            }
         }
 
         drop(inner);
 
+        // Animations that only change in steps wake for their next step.
+        let next_change = next_change
+            .zip(self.animation_timer)
+            .map(|(at, start)| start + std::time::Duration::from_secs_f64(at.max(0.0)));
         if !is_blocked && is_visible && is_animating {
-            self.request_redraw();
+            if let Some(at) = next_change.filter(|at| *at > Instant::now() + FRAME_INTERVAL / 2) {
+                self.next_animation_frame = Some(at);
+            } else if painted {
+                // Presenting waited for vsync: tick again straight away.
+                self.request_animation_frame();
+            } else {
+                // Nothing was presented, so nothing paces the loop: wait a frame.
+                self.next_animation_frame = Some(Instant::now() + FRAME_INTERVAL);
+            }
         }
     }
 

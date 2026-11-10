@@ -1,5 +1,5 @@
 use anyrender::{Filter, PaintScene};
-use kurbo::{Affine, Shape};
+use kurbo::{Affine, Point, Rect, Shape};
 use peniko::{BlendMode, Fill};
 use std::{cell::Cell, sync::Arc};
 
@@ -13,6 +13,56 @@ pub(crate) struct LayerManager {
 
     #[allow(unused)] // Only used for debugging. Enabled as required.
     layer_depth_used: Cell<u32>,
+
+    /// When only this rectangle (scene coordinates) is repainted, a layer whose
+    /// clip covers it can clip to it instead: the same pixels, and renderers
+    /// whose cost grows with a layer's area do far less work.
+    pub(crate) damage: Cell<Option<Rect>>,
+}
+
+/// Whether `shape` (under `transform`) covers all of `rect`. Exact for convex
+/// shapes (rectangles, rounded rectangles, ellipses), which clips are.
+pub(crate) fn covers(shape: &impl Shape, transform: Affine, rect: Rect) -> bool {
+    if transform.determinant().abs() < 1e-12 {
+        return false;
+    }
+    let inverse = transform.inverse();
+    if let Some(shape_rect) = shape.as_rect() {
+        return shape_rect.contains_rect(inverse.transform_rect_bbox(rect))
+            && transform.as_coeffs()[1] == 0.0
+            && transform.as_coeffs()[2] == 0.0;
+    }
+    // Box paths are left open (renderers fill them closed): close every
+    // subpath, or their winding counts as zero everywhere.
+    let mut closed = kurbo::BezPath::new();
+    let mut open = false;
+    for el in shape.path_elements(0.1) {
+        match el {
+            kurbo::PathEl::MoveTo(_) if open => {
+                closed.close_path();
+                closed.push(el);
+            }
+            kurbo::PathEl::ClosePath => {
+                open = false;
+                closed.push(el);
+            }
+            _ => {
+                open = true;
+                closed.push(el);
+            }
+        }
+    }
+    if open {
+        closed.close_path();
+    }
+    [
+        Point::new(rect.x0, rect.y0),
+        Point::new(rect.x1, rect.y0),
+        Point::new(rect.x0, rect.y1),
+        Point::new(rect.x1, rect.y1),
+    ]
+    .into_iter()
+    .all(|corner| closed.contains(inverse * corner))
 }
 
 impl LayerManager {
@@ -66,23 +116,42 @@ impl LayerManager {
             return false;
         }
 
+        // A layer clipped to more than the damage only draws the damage: clip it
+        // there. Filters read beyond the clip, so they keep their own.
+        let damage = self.damage.get().filter(|damage| {
+            filter.is_none() && backdrop_filter.is_none() && covers(shape, transform, *damage)
+        });
         // Actually push the layer
         if blend_mode == BlendMode::default()
             && opacity == 1.0
             && filter.is_none()
             && backdrop_filter.is_none()
         {
-            scene.push_clip_layer(Fill::NonZero, transform, shape);
+            match damage {
+                Some(damage) => scene.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &damage),
+                None => scene.push_clip_layer(Fill::NonZero, transform, shape),
+            }
         } else {
-            scene.push_layer(
-                Fill::NonZero,
-                blend_mode,
-                opacity,
-                transform,
-                shape,
-                filter,
-                backdrop_filter,
-            );
+            match damage {
+                Some(damage) => scene.push_layer(
+                    Fill::NonZero,
+                    blend_mode,
+                    opacity,
+                    Affine::IDENTITY,
+                    &damage,
+                    filter,
+                    backdrop_filter,
+                ),
+                None => scene.push_layer(
+                    Fill::NonZero,
+                    blend_mode,
+                    opacity,
+                    transform,
+                    shape,
+                    filter,
+                    backdrop_filter,
+                ),
+            }
         };
 
         // Update accounting
@@ -91,6 +160,14 @@ impl LayerManager {
         self.layer_depth.update(|x| x.max(self.layer_depth.get()));
 
         true
+    }
+
+    /// The damage rectangle when a filterless layer with this clip should
+    /// clip to it instead (see [`LayerManager::damage`]).
+    pub(crate) fn damage_clip(&self, transform: Affine, shape: &impl Shape) -> Option<Rect> {
+        self.damage
+            .get()
+            .filter(|damage| covers(shape, transform, *damage))
     }
 
     pub(crate) fn maybe_pop_layer(&self, scene: &mut impl PaintScene, condition: bool) {

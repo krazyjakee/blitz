@@ -257,6 +257,27 @@ impl<Rend: WindowRenderer> ApplicationHandler for BlitzApplication<Rend> {
         Some(self)
     }
 
+    /// Wake for animations that are waiting out a frame with nothing to paint.
+    #[cfg(not(target_os = "ios"))]
+    fn about_to_wait(&mut self, event_loop: &dyn ActiveEventLoop) {
+        let now = web_time::Instant::now();
+        let mut next: Option<web_time::Instant> = None;
+        for view in self.windows.values_mut() {
+            if let Some(at) = view.next_animation_frame {
+                if at <= now {
+                    view.next_animation_frame = None;
+                    view.request_animation_frame();
+                } else {
+                    next = Some(next.map_or(at, |next| next.min(at)));
+                }
+            }
+        }
+        event_loop.set_control_flow(match next {
+            Some(at) => winit::event_loop::ControlFlow::WaitUntil(at),
+            None => winit::event_loop::ControlFlow::Wait,
+        });
+    }
+
     #[cfg(target_os = "ios")]
     fn about_to_wait(&mut self, _event_loop: &dyn ActiveEventLoop) {
         for view in self.windows.values_mut() {

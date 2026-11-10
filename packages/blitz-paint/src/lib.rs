@@ -50,6 +50,23 @@ pub fn paint_scene(
     x_offset: u32,
     y_offset: u32,
 ) {
+    paint_scene_damaged(scene, doc, scale, width, height, x_offset, y_offset, None)
+}
+
+/// [`paint_scene`], drawing only what intersects `damage` (window pixels,
+/// before the x/y offset) when it is set: for a renderer that keeps the rest
+/// of the previous frame (`WindowRenderer::render_damage`).
+#[allow(clippy::too_many_arguments)]
+pub fn paint_scene_damaged(
+    scene: &mut impl PaintScene,
+    doc: &mut BaseDocument,
+    scale: f64,
+    width: u32,
+    height: u32,
+    x_offset: u32,
+    y_offset: u32,
+    damage: Option<kurbo::Rect>,
+) {
     // Run `.paint()` on every custom widget in the document (and all subdocuments) ahead of time.
     // This helps us avoid borrow-checker issues as we recurse down the tree (`.paint()` require `&mut self`).
     //
@@ -59,7 +76,7 @@ pub fn paint_scene(
     #[cfg(feature = "custom-widget")]
     build_custom_widget_scenes(&mut custom_widget_scenes, doc, scene, scale);
 
-    let generator = BlitzDomPainter::new(
+    let mut generator = BlitzDomPainter::new(
         doc,
         scale,
         width,
@@ -68,6 +85,11 @@ pub fn paint_scene(
         y_offset as f64,
         &custom_widget_scenes,
     );
+    generator.damage = damage;
+    generator
+        .layer_manager
+        .damage
+        .set(damage.map(|d| d + kurbo::Vec2::new(x_offset as f64, y_offset as f64)));
     generator.paint_scene(scene);
 
     // println!(

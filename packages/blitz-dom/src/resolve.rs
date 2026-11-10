@@ -77,10 +77,15 @@ impl BaseDocument {
 
         // Apply any device changes (viewport resize, zoom, color-scheme, etc)
         // accumulated since the last resolve as a single device rebuild.
+        if !self.pending_device_changes.is_empty() || !self.incremental_layout {
+            self.damage_state.force_full = true;
+        }
         self.flush_pending_device_changes();
 
         // we need to resolve stylist first since it will need to drive our layout bits
         self.resolve_stylist(current_time_for_animations);
+        // What changed, before damage spreads to ancestors.
+        self.collect_own_damage();
         timer.record_time("style");
 
         // Non-incremental mode is "every node is damaged every frame": mark the
@@ -116,6 +121,8 @@ impl BaseDocument {
         // Resolve transforms
         self.resolve_transforms(root_node_id);
         timer.record_time("transform");
+
+        self.compute_paint_damage();
 
         // Build paint children / stacking contexts for damaged subtrees. Runs
         // after layout and transforms so that stacking-context roots created by

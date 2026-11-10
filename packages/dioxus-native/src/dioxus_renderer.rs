@@ -166,4 +166,16 @@ impl WindowRenderer for DioxusNativeWindowRenderer {
     fn render<F: FnOnce(&mut Self::ScenePainter<'_>)>(&mut self, draw_fn: F) {
         self.inner.borrow_mut().render(draw_fn)
     }
+
+    fn supports_damage(&self) -> bool {
+        self.inner.borrow().supports_damage()
+    }
+
+    fn render_damage<F: FnOnce(&mut Self::ScenePainter<'_>)>(
+        &mut self,
+        damage: peniko::kurbo::Rect,
+        draw_fn: F,
+    ) {
+        self.inner.borrow_mut().render_damage(damage, draw_fn)
+    }
 }

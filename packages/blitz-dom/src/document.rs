@@ -377,6 +377,8 @@ pub struct BaseDocument {
     pub(crate) has_active_animations: bool,
     /// Whether there is a `<canvas>` element in the DOM (so we should re-render every frame)
     pub(crate) has_canvas: bool,
+    /// What animation-only frames change on screen (see `paint_damage`).
+    pub(crate) damage_state: crate::paint_damage::DamageState,
     /// Whether there are subdocuments that are animating (so we should re-render every frame)
     pub(crate) subdoc_is_animating: bool,
 
@@ -564,6 +566,7 @@ impl BaseDocument {
             has_active_animations: false,
             subdoc_is_animating: false,
             has_canvas: false,
+            damage_state: Default::default(),
             sub_document_nodes: HashSet::new(),
             iframe_loads: HashMap::new(),
 
@@ -1965,7 +1968,7 @@ impl BaseDocument {
 
     /// Whether any overlay scrollbars are awaiting or animating their
     /// fade-out (so frames must keep rendering until they finish).
-    fn scrollbars_animating(&self) -> bool {
+    pub(crate) fn scrollbars_animating(&self) -> bool {
         use crate::node::scrollbar::{FADE_DELAY, FADE_DURATION};
         self.scrollbar_activity
             .values()

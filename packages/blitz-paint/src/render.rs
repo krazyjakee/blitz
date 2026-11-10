@@ -137,6 +137,10 @@ pub struct BlitzDomPainter<'dom, 'a> {
 
     // Pre-computed `Scene`s for each CustomWidget
     pub(crate) custom_widget_scenes: &'a CustomWidgetSceneMap,
+
+    /// When set, only this window-pixel rectangle is repainted: elements
+    /// outside it are culled (the renderer clips to it).
+    pub(crate) damage: Option<Rect>,
 }
 
 impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
@@ -172,6 +176,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             #[cfg(feature = "scrollbars")]
             scrollbar_drag_target: dom.scrollbar_drag_target(),
             layer_manager,
+            damage: None,
             draw_text_context: RefCell::new(DrawTextContext::default()),
             selection_ranges,
             custom_widget_scenes,
@@ -243,7 +248,13 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
         // The root clip rectangle is the viewport (in screen coordinates, with the
         // initial offset already subtracted). Elements outside of this are culled, and
         // scrollports narrow this rectangle further for their descendants.
-        let viewport_clip_rect = Rect::new(0.0, 0.0, self.width as f64, self.height as f64);
+        let mut viewport_clip_rect = Rect::new(0.0, 0.0, self.width as f64, self.height as f64);
+        match self.damage {
+            // Only what intersects the damage needs drawing.
+            Some(damage) => viewport_clip_rect = viewport_clip_rect.intersect(damage),
+            // A full repaint records every animating element afresh.
+            None => self.dom.clear_paint_records(),
+        }
 
         self.render_element(
             scene,
@@ -477,7 +488,37 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             x: -self.initial_x,
             y: -self.initial_y,
         }) * transform;
-        let screen_bbox = screen_transform.transform_rect_bbox(overflow.union(border_box));
+        let ink = node.ink_outset(self.scale);
+        let screen_bbox = screen_transform
+            .transform_rect_bbox(overflow.union(border_box))
+            .inflate(ink, ink);
+
+        // Remember where animating elements paint (or are culled), so that an
+        // animation-only frame can repaint just what they cover.
+        if self.dom.is_animating_node(node_id) {
+            let parent_transform = Affine::translate(Vec2 {
+                x: -self.initial_x,
+                y: -self.initial_y,
+            }) * parent_style_transform;
+            // A damaged frame narrows the clip to the damage; the clip the
+            // element really paints within is the one the last full frame saw.
+            let record_clip = match self.damage {
+                None => Some(clip_rect),
+                Some(_) => self.dom.paint_record(node_id).map(|r| r.clip_rect),
+            };
+            if let Some(clip) = record_clip {
+                self.dom.record_paint(
+                    node_id,
+                    blitz_dom::PaintRecord {
+                        parent_transform,
+                        clip_rect: clip,
+                        bounds: node
+                            .paint_bounds(parent_transform, self.scale)
+                            .intersect(clip),
+                    },
+                );
+            }
+        }
 
         // Cull elements that fall entirely outside the current clip rectangle. In addition to
         // the viewport, `clip_rect` is narrowed by any ancestor scrollport (see below), so this

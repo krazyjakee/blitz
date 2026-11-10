@@ -52,6 +52,7 @@ mod iframe;
 /// Integration of taffy and the DOM.
 mod layout;
 mod mutator;
+mod paint_damage;
 mod query_selector;
 mod resolve;
 /// Computation of resolved CSS property values (`getComputedStyle()`)
@@ -103,6 +104,7 @@ pub use markup5ever::{
 };
 pub use mutator::DocumentMutator;
 pub use node::{Attribute, DocumentData, ElementData, Node, NodeData, TextNodeData};
+pub use paint_damage::{PaintDamage, PaintRecord};
 pub use parley::FontContext;
 pub use scrolling::{ScrollBehavior, ScrollLogicalPosition};
 pub use tree::NodeTree;
