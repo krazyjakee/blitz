@@ -2,8 +2,8 @@ use crate::{
     BaseDocument, ElementData, Node as BlitzDomNode, NodeData, NodeId as BlitzDomNodeId, local_name,
 };
 use accesskit::{
-    AriaCurrent, HasPopup, Invalid, Live, Node as AccessKitNode, NodeId, Orientation, Role,
-    Toggled, TreeId, TreeInfo, TreeUpdate,
+    Affine, AriaCurrent, HasPopup, Invalid, Live, Node as AccessKitNode, NodeId, Orientation, Rect,
+    Role, Toggled, TreeId, TreeInfo, TreeUpdate,
 };
 use style::properties::longhands::visibility;
 use stylo_taffy::CopyStyleGetters;
@@ -118,6 +118,17 @@ impl BaseDocument {
             .into_iter()
             .map(|(_, (id, node))| (id, node))
             .collect();
+        // Bounds are in CSS pixels, relative to the viewport: the window's
+        // transform scales them to the window's physical pixels.
+        let scale = self.viewport.scale_f64();
+        let (width, height) = self.viewport.window_size;
+        window.set_transform(Affine::scale(scale));
+        window.set_bounds(Rect::new(
+            0.0,
+            0.0,
+            width as f64 / scale,
+            height as f64 / scale,
+        ));
         nodes.push((NodeId(u64::MAX), window));
 
         let tree = TreeInfo::new(NodeId(u64::MAX));
@@ -205,6 +216,15 @@ impl BaseDocument {
             }
 
             set_states_and_properties(&mut builder, element_data, &name, role);
+
+            if let Some(rect) = self.get_client_bounding_rect(node.id) {
+                builder.set_bounds(Rect::new(
+                    rect.x,
+                    rect.y,
+                    rect.x + rect.width,
+                    rect.y + rect.height,
+                ));
+            }
 
             builder.set_html_tag(name);
         } else if node.is_text_node() {

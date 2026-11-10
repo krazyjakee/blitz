@@ -128,3 +128,24 @@ fn properties_and_relations() {
     let off = node(&doc, &tree, "off");
     assert!(off.is_disabled());
 }
+
+#[test]
+fn bounds() {
+    let (doc, tree) = tree(
+        r#"<button id="button" style="position: absolute; left: 10px; top: 20px; width: 100px; height: 30px; margin: 0; box-sizing: border-box">Play</button>"#,
+    );
+    let button = node(&doc, &tree, "button");
+    let bounds = button.bounds().expect("bounds");
+    assert_eq!(
+        (bounds.x0, bounds.y0, bounds.x1, bounds.y1),
+        (10.0, 20.0, 110.0, 50.0)
+    );
+    // The window scales CSS pixels to the window's.
+    let window = &tree
+        .nodes
+        .iter()
+        .find(|(id, _)| *id == NodeId(u64::MAX))
+        .unwrap()
+        .1;
+    assert_eq!(window.transform().map(|t| t.as_coeffs()[0]), Some(2.0));
+}

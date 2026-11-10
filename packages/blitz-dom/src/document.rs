@@ -2141,6 +2141,12 @@ impl BaseDocument {
 
     pub fn set_viewport(&mut self, viewport: Viewport) {
         let changes = DeviceChanges::from_viewports(&self.viewport, &viewport);
+        // The window's size and scale are in the accessibility tree's bounds.
+        if viewport.window_size != self.viewport.window_size
+            || viewport.scale_f64() != self.viewport.scale_f64()
+        {
+            self.has_changes = true;
+        }
         self.viewport = viewport;
         self.queue_device_changes(changes);
     }
